@@ -9,8 +9,14 @@ That has one important consequence:
 - The included CI (`.github/workflows/publish.yml`) therefore **never runs from the app repo**. It
   only runs once this directory is the **root of its own GitHub repo**.
 
-So "publicize it" = copy this directory into a fresh repository and push. Everything here is already
+So "publicize it" = give this directory its own repository and push. Everything here is already
 self-contained and rooted at this directory for exactly that.
+
+> **Status:** the canonical instance is already live at
+> <https://github.com/unrealJune/trail-stash>. It was initialized **in-place** (`git init` inside
+> `infra/trail-stash/`, which is clean because the monorepo gitignores all of `infra/`), so you can
+> keep developing here and `git push` from this directory. The copy-out flow below is the
+> alternative for anyone forking a fresh self-hosted instance.
 
 ## 1. Create the standalone repo
 
