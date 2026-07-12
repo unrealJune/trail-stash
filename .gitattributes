@@ -1,0 +1,6 @@
+# Normalize line endings. The CI shell scripts, Dockerfile, and Helm templates must
+# stay LF so they run correctly on Linux runners regardless of contributor OS.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.ico binary

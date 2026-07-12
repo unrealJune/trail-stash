@@ -1,0 +1,17 @@
+# Rust build output
+target/
+**/*.rs.bk
+
+# Secrets / keys — never commit. Inject TRAIL_STASH_SECRET_KEY & TRAIL_STASH_PSK from a secret manager.
+.env
+.env.*
+!.env.example
+*.pem
+*.p8
+*.key
+
+# Packaged Helm charts
+*.tgz
+
+# OS cruft
+.DS_Store

@@ -1,0 +1,117 @@
+name: publish
+
+# Builds and publishes the trail-stash container image and Helm chart to GHCR.
+#
+# NOTE: this workflow only runs once this directory is its OWN GitHub repo (in the
+# streetCryptid monorepo `infra/` is gitignored, so it isn't pushed there). See PUBLISHING.md.
+#
+# Versioning:
+#   - push to main         → image :latest + :sha-<short>, chart 0.0.0-<short> (appVersion sha-<short>)
+#   - tag v1.2.3           → image :1.2.3 + :1.2 + :latest, chart 1.2.3 (appVersion 1.2.3)
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  # ---- gate: fast pure-core unit tests (no iroh) --------------------------------
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - name: cargo test (pure core)
+        working-directory: rust
+        run: cargo test --locked
+
+  # ---- build + push the image, then package + push the chart -------------------
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      appver: ${{ steps.ver.outputs.appver }}
+      chartver: ${{ steps.ver.outputs.chartver }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute image tags + versions
+        id: ver
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"           # GHCR requires a lowercase path
+          image="${REGISTRY}/${owner}/trail-stash"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            v="${GITHUB_REF_NAME#v}"
+            mm="${v%.*}"
+            tags="${image}:${v},${image}:${mm},${image}:latest"
+            appver="${v}"; chartver="${v}"
+          else
+            short="$(git rev-parse --short HEAD)"
+            tags="${image}:sha-${short},${image}:latest"
+            appver="sha-${short}"; chartver="0.0.0-${short}"
+          fi
+          {
+            echo "tags=${tags}"
+            echo "appver=${appver}"
+            echo "chartver=${chartver}"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: rust
+          file: rust/Dockerfile
+          push: true
+          # arm64 works but emulated Rust builds of the full iroh stack are very slow.
+          # Add ",linux/arm64" here (and a docker/setup-qemu-action step above) if you need it.
+          platforms: linux/amd64
+          tags: ${{ steps.ver.outputs.tags }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=Apache-2.0
+            org.opencontainers.image.description=Ciphertext-blind, stateless iroh-docs replica + push waker
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  chart:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/setup-helm@v4
+
+      - name: helm registry login
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | helm registry login "$REGISTRY" -u "${{ github.actor }}" --password-stdin
+
+      - name: Package + push chart
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          helm package charts/trail-stash \
+            --version "${{ needs.image.outputs.chartver }}" \
+            --app-version "${{ needs.image.outputs.appver }}"
+          helm push "trail-stash-${{ needs.image.outputs.chartver }}.tgz" \
+            "oci://${REGISTRY}/${owner}/charts"
