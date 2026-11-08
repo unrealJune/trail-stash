@@ -30,7 +30,7 @@ jobs:
           workspaces: rust
       - name: cargo test (pure core)
         working-directory: rust
-        run: cargo test --locked
+        run: cargo test --locked --workspace
 
   # ---- build + push the image, then package + push the chart -------------------
   image:
